@@ -85,8 +85,11 @@ export function buildCcdXml(note: Note, patient: Patient): string {
 
   const diagnosisAnswer = findAnswer(note, "Diagnosis Addressed");
   const icdCodes = diagnosisAnswer?.codes ?? [];
-  const diagnosisDescription =
-    findAnswer(note, "Diagnosis Description")?.response ?? "";
+  const diagnosisDescription = (
+    findAnswer(note, "Diagnosis Description")?.response ?? ""
+  ).trim();
+  const hasProblems =
+    icdCodes.length > 0 || diagnosisDescription.length > 0;
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <ClinicalDocument xmlns="urn:hl7-org:v3" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:voc="urn:hl7-org:v3/voc" xmlns:sdtc="urn:hl7-org:sdtc">
@@ -187,10 +190,29 @@ ${phone ? `      <telecom value="tel:${escapeAttr(phone)}" use="MC"/>\n` : ""}  
           </entry>
         </section>
       </component>
-${icdCodes.length > 0 ? buildProblemsSection(icdCodes, diagnosisDescription, createdDate) : ""}    </structuredBody>
+${hasProblems ? buildProblemsSection(icdCodes, diagnosisDescription, createdDate) : ""}    </structuredBody>
   </component>
 </ClinicalDocument>
 `;
+}
+
+function buildProblemValue(
+  code: string | null,
+  refId: string,
+): string {
+  if (code) {
+    return `<value xsi:type="CD" code="${escapeAttr(code)}" codeSystem="2.16.840.1.113883.6.90" codeSystemName="ICD-10-CM">
+                    <originalText>
+                      <reference value="#${escapeAttr(refId)}"/>
+                    </originalText>
+                  </value>`;
+  }
+
+  return `<value xsi:type="CD" nullFlavor="OTH">
+                    <originalText>
+                      <reference value="#${escapeAttr(refId)}"/>
+                    </originalText>
+                  </value>`;
 }
 
 function buildProblemsSection(
@@ -198,13 +220,25 @@ function buildProblemsSection(
   description: string,
   effectiveDate: string,
 ): string {
-  const rows = icdCodes
-    .map((code) => `                <tr><td>${escapeText(code)}</td><td>${escapeText(description)}</td></tr>`)
+  const items =
+    icdCodes.length > 0
+      ? icdCodes.map((code, index) => ({
+          code,
+          refId: `Problem${index + 1}`,
+        }))
+      : [{ code: null as string | null, refId: "Problem1" }];
+
+  const rows = items
+    .map(({ code, refId }) =>
+      code
+        ? `                <tr><td>${escapeText(code)}</td><td ID="${escapeAttr(refId)}">${escapeText(description)}</td></tr>`
+        : `                <tr><td></td><td ID="${escapeAttr(refId)}">${escapeText(description)}</td></tr>`,
+    )
     .join("\n");
 
-  const entries = icdCodes
+  const entries = items
     .map(
-      (code) => `          <entry typeCode="DRIV">
+      ({ code, refId }) => `          <entry typeCode="DRIV">
             <act classCode="ACT" moodCode="EVN">
               <templateId root="2.16.840.1.113883.10.20.22.4.3" extension="2015-08-01"/>
               <code code="CONC" codeSystem="2.16.840.1.113883.5.6"/>
@@ -215,12 +249,12 @@ function buildProblemsSection(
               <entryRelationship typeCode="SUBJ">
                 <observation classCode="OBS" moodCode="EVN">
                   <templateId root="2.16.840.1.113883.10.20.22.4.4" extension="2015-08-01"/>
-                  <code code="55607006" codeSystem="2.16.840.1.113883.6.96" displayName="Problem"/>
+                  <code code="55607006" codeSystem="2.16.840.1.113883.6.96" codeSystemName="SNOMED CT" displayName="Problem"/>
                   <statusCode code="completed"/>
                   <effectiveTime>
                     <low value="${escapeAttr(effectiveDate)}"/>
                   </effectiveTime>
-                  <value xsi:type="CD" code="${escapeAttr(code)}" codeSystem="2.16.840.1.113883.6.90" codeSystemName="ICD-10-CM" displayName="${escapeAttr(description)}"/>
+                  ${buildProblemValue(code, refId)}
                 </observation>
               </entryRelationship>
             </act>
