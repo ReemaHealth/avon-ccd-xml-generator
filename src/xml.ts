@@ -6,8 +6,14 @@ const CODE_SYSTEM = {
   ICD10_CM: { oid: "2.16.840.1.113883.6.90", name: "ICD10CM" },
   HL7_ACT_CLASS: { oid: "2.16.840.1.113883.5.6", name: "HL7ActClass" },
   HL7_ACT_STATUS: { oid: "2.16.840.1.113883.5.14", name: "ActStatus" },
-  HL7_ADMIN_GENDER: { oid: "2.16.840.1.113883.5.1", name: "AdministrativeGender" },
-  HL7_CONFIDENTIALITY: { oid: "2.16.840.1.113883.5.25", name: "Confidentiality" },
+  HL7_ADMIN_GENDER: {
+    oid: "2.16.840.1.113883.5.1",
+    name: "AdministrativeGender",
+  },
+  HL7_CONFIDENTIALITY: {
+    oid: "2.16.840.1.113883.5.25",
+    name: "Confidentiality",
+  },
   NUCC: { oid: "2.16.840.1.113883.6.101", name: "NUCC" },
 } as const;
 
@@ -15,10 +21,7 @@ const statusCode = (code: string): string =>
   `<statusCode code="${code}" codeSystem="${CODE_SYSTEM.HL7_ACT_STATUS.oid}" codeSystemName="${CODE_SYSTEM.HL7_ACT_STATUS.name}"/>`;
 
 const escapeText = (value: string): string =>
-  value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+  value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 const escapeAttr = (value: string): string =>
   escapeText(value).replace(/"/g, "&quot;");
@@ -87,11 +90,16 @@ export function buildCcdXml(note: Note, patient: Patient): string {
   const givenName = patient.first_name ?? "";
   const familyName = patient.last_name ?? "";
 
-  const guideFirst = (findAnswer(note, "Guide First Name")?.response ?? "").trim();
-  const guideLast = (findAnswer(note, "Guide Last Name")?.response ?? "").trim();
+  const guideFirst = (
+    findAnswer(note, "Guide First Name")?.response ?? ""
+  ).trim();
+  const guideLast = (
+    findAnswer(note, "Guide Last Name")?.response ?? ""
+  ).trim();
 
   const visitType = selectedOptionName(findAnswer(note, "Visit Type"));
   const snomedCode = selectedOptionName(findAnswer(note, "SNOMED code"));
+  const patientId = findAnswer(note, "Patient ID")?.response;
   const visitDisplay = visitTypeToSnomedDisplay(visitType);
 
   const followupDate =
@@ -102,8 +110,7 @@ export function buildCcdXml(note: Note, patient: Patient): string {
   const diagnosisDescription = (
     findAnswer(note, "Diagnosis Description")?.response ?? ""
   ).trim();
-  const hasProblems =
-    icdCodes.length > 0 || diagnosisDescription.length > 0;
+  const hasProblems = icdCodes.length > 0 || diagnosisDescription.length > 0;
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <ClinicalDocument xmlns="urn:hl7-org:v3" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:voc="urn:hl7-org:v3/voc" xmlns:sdtc="urn:hl7-org:sdtc">
@@ -123,7 +130,7 @@ export function buildCcdXml(note: Note, patient: Patient): string {
   <versionNumber value="1"/>
   <recordTarget>
     <patientRole>
-      <id extension="${escapeAttr(mrn)}" root="2.16.840.1.113883.4.1"/>
+      <id extension="${escapeAttr(patientId ?? mrn)}" root="2.16.840.1.113883.4.1"/>
 ${phone ? `      <telecom value="tel:${escapeAttr(phone)}" use="MC"/>\n` : ""}      <patient>
         <name use="L">
           <given>${escapeText(givenName)}</given>
@@ -205,10 +212,7 @@ ${hasProblems ? buildProblemsSection(icdCodes, diagnosisDescription, createdDate
 `;
 }
 
-function buildProblemValue(
-  code: string | null,
-  refId: string,
-): string {
+function buildProblemValue(code: string | null, refId: string): string {
   if (code) {
     return `<value xsi:type="CD" code="${escapeAttr(code)}" codeSystem="${CODE_SYSTEM.ICD10_CM.oid}" codeSystemName="${CODE_SYSTEM.ICD10_CM.name}">
                     <originalText>
